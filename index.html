@@ -35,29 +35,35 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #d1d5db;
         }
+        /* 動畫效果 */
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body class="bg-[#F8F9FA] text-neutral-800">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useCallback } = React;
 
-        // --- 圖示組件輔助 (由於 CDN 環境限制，手寫 SVG 以確保穩定) ---
+        // --- 圖示組件 ---
         const Icon = ({ name, size = 20, className = "" }) => {
-            const [svg, setSvg] = useState("");
+            const iconRef = React.useRef(null);
             useEffect(() => {
-                if (window.lucide) {
-                    const iconSvg = window.lucide.createIcons();
+                if (window.lucide && iconRef.current) {
+                    window.lucide.createIcons();
                 }
-            }, []);
-            return <i data-lucide={name} style={{width: size, height: size}} className={className}></i>;
+            }, [name]);
+            return <i data-lucide={name} ref={iconRef} style={{width: size, height: size}} className={`inline-block ${className}`}></i>;
         };
 
         const CATEGORIES = ['情緒困擾', '人際關係', '學習適應', '家庭議題', '生涯規劃', '競賽壓力'];
         const SEMESTERS = ['112-1', '112-2', '113-1', '113-2', '114-1', '114-2', '115-1'];
 
         const App = () => {
+            // --- 重要：API Key 設置 ---
+            const [apiKey, setApiKey] = useState("AIzaSyA14tNgdvaEStytuio6V6ELr3hE8662McA"); 
+            
             const [records, setRecords] = useState([]);
             const [activeId, setActiveId] = useState(null);
             const [searchQuery, setSearchQuery] = useState('');
@@ -67,33 +73,35 @@
             const [currentSemester, setCurrentSemester] = useState('114-1');
             const [rawIncident, setRawIncident] = useState("");
             const [draft, setDraft] = useState(null);
+            const [errorMessage, setErrorMessage] = useState("");
 
-            const apiKey = "AIzaSyA14tNgdvaEStytuio6V6ELr3hE8662McA"; // 執行環境會自動注入或手動填入
-
+            // 初始化與定期檢查圖示
             useEffect(() => {
                 const demo = {
                     id: 'demo-1',
                     studentName: '陳生',
                     date: new Date().toISOString().split('T')[0],
                     category: '學習適應',
-                    title: '關於作業書寫品質的結構性介入',
-                    content: '【114-1輔導1】\n\n【事件】近日老師發現陳生作業書寫的狀況非常糟糕，字體潦草，且錯誤非常多。\n\n【策略】\n1.和陳生進行晤談，告知作業書寫是很重要的練習，要認真用心的完成。\n2.和家長進行溝通，請家長協助在家先協助叮嚀，避免陳生在校花太多時間訂正，影響休息時間。\n3.與陳生和家長達成共識，未來作業也會請陳生到校馬上讓老師批改確認。\n\n【建議】陳生是一位較不積極的孩子，容易用得過且過的態度做事，需要老師多引導。家長配合度很好，親師互動良好。',
+                    title: '範例：作業書寫品質介入',
+                    content: '【114-1輔導1】\n\n【事件】近日老師發現陳生作業書寫的狀況非常糟糕，字體潦草，且錯誤非常多。\n\n【策略】\n1.和陳生進行晤談，告知作業書寫是很重要的練習。\n2.和家長進行溝通，請家長協助在家先協助叮嚀。\n3.與陳生和家長達成共識，作業將請陳生到校後立即讓老師批改。\n\n【建議】陳生處事較不積極，需要老師持續引導。家長配合度良好。',
                     status: '已完成'
                 };
                 setRecords([demo]);
-                lucide.createIcons();
+                const timer = setTimeout(() => { if(window.lucide) window.lucide.createIcons(); }, 500);
+                return () => clearTimeout(timer);
             }, []);
 
+            // 全域圖示刷新
             useEffect(() => {
-                lucide.createIcons();
-            }, [activeId, records, isEditing, isGenerating, copyStatus]);
+                if (window.lucide) window.lucide.createIcons();
+            });
 
             const createNewRecord = () => {
                 const newRecord = {
                     id: Date.now().toString(),
                     studentName: '',
                     date: new Date().toISOString().split('T')[0],
-                    category: '情緒困擾',
+                    category: '學習適應',
                     title: '新紀錄',
                     content: '',
                     status: '草稿'
@@ -103,6 +111,7 @@
                 setDraft(newRecord);
                 setRawIncident("");
                 setIsEditing(true);
+                setErrorMessage("");
             };
 
             const handleSave = () => {
@@ -122,17 +131,23 @@
                     setCopyStatus(true);
                     setTimeout(() => setCopyStatus(false), 2000);
                 } catch (err) {
-                    console.error('無法複製文字', err);
+                    setErrorMessage("複製失敗");
                 }
                 document.body.removeChild(textArea);
             };
 
             const translateIncident = async () => {
                 if (!rawIncident.trim()) return;
+                if (!apiKey) {
+                    setErrorMessage("⚠️ 尚未偵測到 API Key。請在左下角輸入或於代碼第 59 行填寫。");
+                    return;
+                }
+                
+                setErrorMessage("");
                 setIsGenerating(true);
 
                 const systemPrompt = `你是一位專業的學校輔導老師。將用戶提供的「偶發事件描述」轉譯成正式的「輔導紀錄格式」。嚴格遵守：1. 稱謂規範：一律使用「姓氏 + 生」。2. 格式：【${currentSemester}輔導1】、 【事件】、【策略】(條列)、【建議】。3. 嚴禁任何星號(*)。4. 專業客觀語氣。`;
-                const userPrompt = `偶發事件內容：\n${rawIncident}`;
+                const userPrompt = `偶發事件內容如下，請轉譯：\n${rawIncident}`;
 
                 try {
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
@@ -143,13 +158,22 @@
                             systemInstruction: { parts: [{ text: systemPrompt }] }
                         })
                     });
+                    
                     const data = await response.json();
+                    
+                    if (data.error) {
+                        throw new Error(data.error.message || "API 密鑰無效或請求被拒絕");
+                    }
+                    
                     const result = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                    if (!result) throw new Error("AI 回傳了空的內容，請重試");
+                    
                     const cleanResult = result.replace(/\*/g, '');
                     setDraft(prev => ({ ...prev, content: cleanResult }));
                     setIsEditing(true);
                 } catch (error) {
-                    console.error(error);
+                    setErrorMessage("轉譯錯誤：" + error.message);
+                    console.error("Translation Error:", error);
                 } finally {
                     setIsGenerating(false);
                 }
@@ -160,15 +184,15 @@
             );
 
             return (
-                <div className="flex h-screen overflow-hidden">
+                <div className="flex h-screen overflow-hidden fade-in">
                     {/* Sidebar */}
                     <aside className="w-80 border-r border-neutral-200 bg-white flex flex-col shadow-sm z-20">
-                        <div className="p-6 border-b border-neutral-100">
+                        <div className="p-6 border-b border-neutral-100 bg-indigo-50/30">
                             <h1 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
                                 <Icon name="sparkles" className="text-indigo-600" />
                                 輔導紀錄生成器
                             </h1>
-                            <p className="text-[10px] text-neutral-400 mt-1 uppercase tracking-[0.2em] font-bold">Incidence to Narrative</p>
+                            <p className="text-[10px] text-neutral-400 mt-1 uppercase tracking-[0.2em] font-bold italic">Incidence to Narrative</p>
                         </div>
 
                         <div className="p-4">
@@ -176,7 +200,7 @@
                                 <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
                                 <input 
                                     type="text" 
-                                    placeholder="搜尋學生..."
+                                    placeholder="搜尋學生紀錄..."
                                     className="w-full pl-9 pr-4 py-2 bg-neutral-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -189,25 +213,41 @@
                                 onClick={createNewRecord}
                                 className="w-full py-3 rounded-xl border-2 border-dashed border-neutral-200 text-neutral-500 hover:border-indigo-400 hover:text-indigo-600 transition-all flex items-center justify-center gap-2 font-medium mb-4"
                             >
-                                <Icon name="plus" size={18} /> 新增輔導個案
+                                <Icon name="plus" size={18} /> 建立新劇本
                             </button>
                             
                             {filteredRecords.map(record => (
                                 <div 
                                     key={record.id}
-                                    onClick={() => { setActiveId(record.id); setDraft(record); setIsEditing(false); }}
+                                    onClick={() => { setActiveId(record.id); setDraft(record); setIsEditing(false); setErrorMessage(""); }}
                                     className={`group p-4 rounded-2xl cursor-pointer transition-all border ${
-                                        activeId === record.id ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-transparent hover:bg-neutral-50'
+                                        activeId === record.id ? 'bg-indigo-50 border-indigo-100 shadow-sm' : 'bg-white border-transparent hover:bg-neutral-50'
                                     }`}
                                 >
                                     <div className="flex justify-between items-start mb-1">
                                         <span className="font-bold text-neutral-900">{record.studentName || '未命名'}</span>
                                         <span className="text-[10px] bg-neutral-200 px-2 py-0.5 rounded-full text-neutral-600">{record.category}</span>
                                     </div>
-                                    <p className="text-xs text-neutral-500 line-clamp-1 italic">{record.title}</p>
+                                    <p className="text-xs text-neutral-400 truncate italic">「{record.title}」</p>
                                 </div>
                             ))}
                         </nav>
+                        
+                        {/* 狀態列與 API 設定 */}
+                        <div className="p-4 bg-neutral-50 border-t border-neutral-100 space-y-3">
+                            <div className="flex items-center justify-between text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
+                                <span>API 狀態</span>
+                                <span className={apiKey ? "text-green-500" : "text-amber-500"}>{apiKey ? "已連線" : "未偵測"}</span>
+                            </div>
+                            {!apiKey && (
+                                <input 
+                                    type="password" 
+                                    placeholder="在此貼上 Gemini Key"
+                                    className="w-full px-3 py-2 text-xs rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                                    onBlur={(e) => { setApiKey(e.target.value); setErrorMessage(""); }}
+                                />
+                            )}
+                        </div>
                     </aside>
 
                     {/* Main Content */}
@@ -216,26 +256,22 @@
                             <>
                                 <header className="px-8 py-4 border-b border-neutral-100 flex justify-between items-center bg-white/90 backdrop-blur-md sticky top-0 z-10">
                                     <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                                        <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
                                             <Icon name="file-text" />
                                         </div>
                                         <div>
-                                            <h2 className="text-base font-bold text-neutral-900">紀錄編輯面板</h2>
-                                            <div className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono">
-                                                <Icon name="clock" size={10} /> 系統版本: 2026.04.30
+                                            <h2 className="text-base font-black text-neutral-900">個案敘事校對</h2>
+                                            <div className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono tracking-tighter">
+                                                <Icon name="clock" size={10} /> 雲端處理模式 (imYaboyRoy ver.)
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <button onClick={() => { if(confirm('確定刪除？')) deleteRecord(draft.id) }} className="p-2 text-neutral-400 hover:text-red-500 transition-colors">
-                                            <Icon name="trash-2" />
-                                        </button>
-                                        
                                         <button 
                                             onClick={() => setIsEditing(!isEditing)} 
                                             className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${isEditing ? 'bg-white text-neutral-600 border-neutral-200 shadow-sm' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}
                                         >
-                                            {isEditing ? '檢視模式' : '解除鎖定'}
+                                            {isEditing ? '檢視' : '解鎖'}
                                         </button>
 
                                         <button 
@@ -243,78 +279,86 @@
                                             className={`px-4 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all ${copyStatus ? 'bg-green-600 text-white border-green-600' : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50 shadow-sm'}`}
                                         >
                                             <Icon name={copyStatus ? "check" : "copy"} size={14} />
-                                            {copyStatus ? '已複製內容' : '複製內容'}
+                                            {copyStatus ? '已複製' : '複製'}
                                         </button>
 
-                                        <button onClick={handleSave} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-100 flex items-center gap-2">
-                                            <Icon name="save" size={16} /> 儲存紀錄
+                                        <button onClick={handleSave} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xl shadow-indigo-200 flex items-center gap-2 transition-transform active:scale-95">
+                                            <Icon name="save" size={16} /> 儲存
                                         </button>
                                     </div>
                                 </header>
 
                                 <div className="flex-1 overflow-y-auto flex">
-                                    {/* Left: AI Transfer Tool */}
-                                    <div className="w-1/3 border-r border-neutral-100 p-8 space-y-6 bg-neutral-50/50 overflow-y-auto">
+                                    {/* Left: Input Transformer */}
+                                    <div className="w-80 border-r border-neutral-100 p-6 space-y-6 bg-neutral-50/50 overflow-y-auto">
                                         <div className="space-y-4">
-                                            <div className="space-y-2">
+                                            <div className="space-y-1">
                                                 <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2">
                                                     <Icon name="layers" size={14} /> 學年度設定
                                                 </label>
                                                 <select 
                                                     value={currentSemester}
                                                     onChange={(e) => setCurrentSemester(e.target.value)}
-                                                    className="w-full bg-white border border-neutral-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                    className="w-full bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-indigo-500/20"
                                                 >
                                                     {SEMESTERS.map(s => <option key={s} value={s}>{s} 學年度</option>)}
                                                 </select>
                                             </div>
 
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 pt-2">
                                                 <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2">
                                                     <Icon name="wand-2" size={14} /> ＡＩ轉譯
                                                 </label>
-                                                <p className="text-xs text-neutral-400 leading-relaxed">
-                                                    輸入偶發事件描述，自動優化稱謂並去除星號。
+                                                <p className="text-[11px] text-neutral-400 leading-relaxed italic">
+                                                    輸入偶發事件，我會為您轉化為結構化的正式紀錄。
                                                 </p>
                                             </div>
                                         </div>
                                         
                                         <textarea 
-                                            className="w-full h-64 p-4 bg-white border border-neutral-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder:text-neutral-300 shadow-inner resize-none"
-                                            placeholder="例如：今天陳小明在課堂上..."
+                                            className="w-full h-72 p-4 bg-white border border-neutral-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder:text-neutral-300 shadow-inner resize-none"
+                                            placeholder="在此輸入偶發事件描述...例如：陳小明今天不交作業..."
                                             value={rawIncident}
                                             onChange={(e) => setRawIncident(e.target.value)}
                                         ></textarea>
 
+                                        {errorMessage && (
+                                            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-xs rounded-2xl flex items-start gap-2 fade-in">
+                                                <Icon name="alert-circle" size={14} className="mt-0.5 shrink-0" />
+                                                <span className="leading-relaxed">{errorMessage}</span>
+                                            </div>
+                                        )}
+
                                         <button 
                                             onClick={translateIncident}
                                             disabled={isGenerating || !rawIncident.trim()}
-                                            className="w-full py-3 bg-neutral-900 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-neutral-800 disabled:opacity-50 transition-all shadow-xl active:scale-95"
+                                            className="w-full py-4 bg-neutral-900 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-neutral-800 disabled:opacity-50 transition-all shadow-xl active:scale-95 group"
                                         >
-                                            {isGenerating ? <div className="animate-spin h-4 w-4 border-2 border-white/20 border-t-white rounded-full"></div> : <Icon name="sparkles" size={16} />}
-                                            ＡＩ轉譯
+                                            {isGenerating ? <div className="animate-spin h-4 w-4 border-2 border-white/20 border-t-white rounded-full"></div> : <Icon name="sparkles" size={16} className="group-hover:rotate-12 transition-transform" />}
+                                            ＡＩ轉譯啟動
                                         </button>
                                     </div>
 
-                                    {/* Right: Record Content */}
-                                    <div className="flex-1 p-12 overflow-y-auto">
-                                        <div className="max-w-2xl mx-auto space-y-10">
+                                    {/* Right: Record Editor */}
+                                    <div className="flex-1 p-12 overflow-y-auto bg-white">
+                                        <div className="max-w-2xl mx-auto space-y-12">
                                             <section className="grid grid-cols-2 gap-8">
                                                 <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">學生主角</label>
+                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">學生姓名</label>
                                                     <input 
                                                         disabled={!isEditing}
-                                                        className="w-full text-xl font-bold bg-transparent border-b border-neutral-100 focus:border-indigo-500 outline-none pb-1 disabled:border-transparent"
+                                                        placeholder="例如：陳生"
+                                                        className="w-full text-2xl font-black bg-transparent border-b-2 border-neutral-100 focus:border-indigo-500 outline-none pb-1 disabled:border-transparent transition-colors"
                                                         value={draft.studentName}
                                                         onChange={(e) => setDraft({...draft, studentName: e.target.value})}
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">日期記錄</label>
+                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">事件日期</label>
                                                     <input 
                                                         disabled={!isEditing}
                                                         type="date"
-                                                        className="w-full text-xl bg-transparent border-b border-neutral-100 focus:border-indigo-500 outline-none pb-1 disabled:border-transparent"
+                                                        className="w-full text-xl bg-transparent border-b-2 border-neutral-100 focus:border-indigo-500 outline-none pb-1 disabled:border-transparent"
                                                         value={draft.date}
                                                         onChange={(e) => setDraft({...draft, date: e.target.value})}
                                                     />
@@ -322,21 +366,21 @@
                                             </section>
 
                                             <section className="space-y-4">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="flex-1 space-y-2">
-                                                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">紀錄標題</label>
+                                                <div className="grid grid-cols-3 gap-6 items-end">
+                                                    <div className="col-span-2 space-y-2">
+                                                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">紀錄主題</label>
                                                         <input 
                                                             disabled={!isEditing}
-                                                            className="w-full text-lg italic text-neutral-600 bg-neutral-50 px-4 py-2 rounded-lg outline-none disabled:bg-white"
+                                                            className="w-full text-lg italic text-neutral-500 bg-neutral-50 px-4 py-2 rounded-xl outline-none disabled:bg-white transition-all"
                                                             value={draft.title}
                                                             onChange={(e) => setDraft({...draft, title: e.target.value})}
                                                         />
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">類別</label>
+                                                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">諮詢類別</label>
                                                         <select 
                                                             disabled={!isEditing}
-                                                            className="block bg-neutral-50 px-3 py-2 rounded-lg text-sm outline-none disabled:bg-white disabled:appearance-none"
+                                                            className="w-full bg-neutral-50 px-3 py-2.5 rounded-xl text-xs font-bold outline-none disabled:bg-white disabled:appearance-none cursor-pointer"
                                                             value={draft.category}
                                                             onChange={(e) => setDraft({...draft, category: e.target.value})}
                                                         >
@@ -347,26 +391,26 @@
                                             </section>
 
                                             <section className="space-y-4">
-                                                <div className="flex justify-between items-center">
-                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">最終轉譯紀錄內容</label>
-                                                    {isGenerating && <span className="text-[10px] text-indigo-500 animate-pulse font-bold tracking-widest">轉譯中...</span>}
+                                                <div className="flex justify-between items-end">
+                                                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest border-l-4 border-indigo-600 pl-3">正式輔導紀錄文本</label>
+                                                    <span className="text-[10px] font-mono text-neutral-300">CHARS: {draft.content.length}</span>
                                                 </div>
                                                 
                                                 <div className="relative group">
                                                     <textarea 
                                                         disabled={!isEditing}
-                                                        className="w-full min-h-[500px] p-8 bg-neutral-50 rounded-[2.5rem] text-sm leading-loose text-neutral-700 outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all disabled:bg-white border border-transparent focus:border-indigo-100 font-serif"
+                                                        className="w-full min-h-[500px] p-10 bg-neutral-50 rounded-[3rem] text-sm leading-loose text-neutral-700 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all disabled:bg-white border border-transparent focus:border-indigo-100 font-serif shadow-inner"
                                                         value={draft.content}
                                                         onChange={(e) => setDraft({...draft, content: e.target.value})}
                                                     ></textarea>
                                                     
-                                                    {!isEditing && (
+                                                    {!isEditing && draft.content && (
                                                         <button 
                                                             onClick={handleCopy}
-                                                            className="absolute top-6 right-6 p-3 bg-white/80 backdrop-blur shadow-sm border border-neutral-100 rounded-full text-neutral-400 hover:text-indigo-600 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
-                                                            title="快速複製"
+                                                            className="absolute top-8 right-8 p-4 bg-white/90 backdrop-blur shadow-xl border border-neutral-100 rounded-full text-neutral-400 hover:text-indigo-600 hover:scale-110 transition-all opacity-0 group-hover:opacity-100"
+                                                            title="快速複製至剪貼簿"
                                                         >
-                                                            <Icon name={copyStatus ? "check" : "copy"} size={18} className={copyStatus ? "text-green-500" : ""} />
+                                                            <Icon name={copyStatus ? "check" : "copy"} size={22} className={copyStatus ? "text-green-500" : ""} />
                                                         </button>
                                                     )}
                                                 </div>
@@ -376,15 +420,25 @@
                                 </div>
                             </>
                         ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center text-neutral-400">
-                                <div className="w-20 h-20 bg-neutral-50 rounded-full flex items-center justify-center mb-4">
-                                    <Icon name="book-open" size={32} className="text-neutral-200" />
+                            <div className="flex-1 flex flex-col items-center justify-center text-neutral-400 fade-in">
+                                <div className="w-24 h-24 bg-neutral-50 rounded-full flex items-center justify-center mb-6 shadow-inner animate-pulse">
+                                    <Icon name="book-open" size={40} className="text-neutral-200" />
                                 </div>
-                                <p className="text-sm font-medium">請選擇個案，或開始新的轉譯</p>
-                                <button onClick={createNewRecord} className="mt-4 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 hover:scale-105 transition-all">生成新紀錄</button>
+                                <h3 className="text-lg font-bold text-neutral-600">準備好開始轉譯了嗎？</h3>
+                                <p className="text-xs mt-2 max-w-xs text-center leading-relaxed">
+                                    選擇左側已儲存的紀錄，或是建立一個全新的個案敘事舞台。
+                                </p>
+                                <button onClick={createNewRecord} className="mt-8 px-10 py-4 bg-indigo-600 text-white rounded-[2rem] font-black shadow-2xl shadow-indigo-100 hover:scale-105 transition-all active:scale-95 flex items-center gap-2">
+                                    <Icon name="plus" size={18} /> 建立新劇本
+                                </button>
                             </div>
                         )}
                     </main>
+                    
+                    {/* 背景浮水印 */}
+                    <div className="fixed bottom-0 right-0 p-12 opacity-[0.03] pointer-events-none select-none">
+                        <Icon name="sparkles" size={400} />
+                    </div>
                 </div>
             );
         };
